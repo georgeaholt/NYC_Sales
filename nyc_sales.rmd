@@ -1,0 +1,477 @@
+---
+title: 'HarvardX Data Science Capstone: New York City property price prediction'
+author: "Zhi Han"
+date: "12/25/2020"
+output: pdf_document
+---
+
+# 1. Introduction
+Predictive modeling is the general concept of building a model that is capable of making predictions. Typically, such a model includes a machine learning algorithm that learns certain properties from a training dataset in order to make those predictions.
+
+In this project we will try to build a predictive model to predict house price. We will use NYC Property Sales dataset from Kaggle (https://www.kaggle.com/new-york-city/nyc-property-sales). This dataset is a record of every building or building unit (apartment, etc.) sold in the New York City property market over a 12-month period.
+
+This dataset contains the location, address, type, sale price, and sale date of building units sold. A reference on the trickier fields:
+
+* BOROUGH: A digit code for the borough the property is located in; in order these are Manhattan (1), Bronx (2), Brooklyn (3), Queens (4), and Staten Island (5).
+
+* TAX CLASS AT PRESENT and TAX CLASS AT TIME OF SALE: Every property in the city is assigned to one of four tax classes (Classes 1, 2, 3, and 4), based on the use of the property.
+  + Class 1: Includes most residential property of up to three units (such as one-,two-, and three-family homes and small stores or offices with one or two
+attached apartments), vacant land that is zoned for residential use, and most
+condominiums that are not more than three stories.
+  + Class 2: Includes all other property that is primarily residential, such as
+cooperatives and condominiums.
+  + Class 3: Includes property with equipment owned by a gas, telephone or electric company.
+  + Class 4: Includes all other properties not included in class 1,2, and 3, such as offices, factories, warehouses, garage buildings, etc. 
+* RESIDENTIAL UNITS:The number of residential units at the listed property.
+* COMMERCIAL UNITS: The number of commercial units at the listed property.
+* TOTAL UNITS:The total number of units at the listed property.
+* LAND SQUARE FEET:The land area of the property listed in square feet.
+* GROSS SQUARE FEET:The total area of all the floors of a building as measured from the exterior surfaces of the outside walls of the building, including the land area and space within any building or structure on the property. 
+* YEAR BUILT:Year the structure on the property was built. 
+* SALE PRICE:Price paid for the property.
+* SALE DATE: Date the property sold.
+* $0 Sales Price: A $0 sale or a small value sale such as $10 or $20 indicates that there was a transfer of ownership without a cash consideration.
+There can be a number of reasons for a $0 sale including transfers of ownership from parents to children
+
+Our objective of this project is to predict the price of the house with the information provided in the dataset. We will build several predictive models with classic machine learning methods and evaluate and compare their performance.
+
+
+# 2. Data Analysis and Predictive Methods
+
+## 2.1 Libraries and data loading
+
+First, we need to load the packages used for this project. The missing packages will be installed automatically.
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(randomForest)) install.packages("randomForest", repos = "http://cran.us.r-project.org")
+if(!require(glmnet)) install.packages("glmnet", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(glmnet)
+library(data.table)
+```
+Then we will load the NYC Property Sales data. The data includes only one file "nyc-rolling-sales.csv" and can be downloaded from https://www.kaggle.com/new-york-city/nyc-property-sales or https://github.com/zhan-us/NYC_Sales/raw/main/nyc-rolling-sales.csv .
+
+```{r message=FALSE, warning=FALSE,results = "hide"}
+# download the csv data from internet and load the data from csv file
+temp<-tempfile()
+download.file("https://github.com/zhan-us/NYC_Sales/raw/main/nyc-rolling-sales.csv",temp,method = "wget")
+nyc_sales_orginal<-read_csv(temp)
+unlink(temp)
+```
+
+## 2.2 Data exploration and data cleaning
+First, let us overview the structure of the data.
+```{r message=FALSE, warning=FALSE}
+# review the structure of the dataset
+summary(nyc_sales_orginal)
+```
+
+Then we checked and counted the missing value for each varibles
+```{r}
+nyc_sales<-nyc_sales_orginal
+
+#check the missing value for each varibles
+colSums(is.na(nyc_sales))
+```
+According to the structure and the missing information of the data, first we dropped some varables which has lot of missing value and also are unneccessary for our analysis.
+```{r}
+#drop the unneccesary varibles with lot of missing value
+#drop EASE-MENT since all the value are missing
+nyc_sales$`EASE-MENT`<-NULL
+
+#drop "APARTMENT NUMBER" since it is unnecessary variable and most value are missing
+nyc_sales$`APARTMENT NUMBER`<-NULL
+
+#drop unneccesary numeric varibles BLOCK,LOT,ZIP CODE
+nyc_sales$BLOCK<-NULL
+nyc_sales$LOT<-NULL
+nyc_sales$`ZIP CODE`<-NULL
+```
+Then we used the name convention to rename some variables which name has space.
+```{r}
+#use the name convention to rename the columns wich name has space
+nyc_sales<-nyc_sales%>%rename(
+  id = X1,
+  BUILDING_CLASS_CATEGORY = `BUILDING CLASS CATEGORY`,
+  TAX_CLASS_AT_PRESENT = `TAX CLASS AT PRESENT`,
+  BUILDING_CALSS_AT_PRESENT = `BUILDING CLASS AT PRESENT`,
+  RESIDENTIAL_UNITS = `RESIDENTIAL UNITS`,
+  COMMERCIAL_UNITS = `COMMERCIAL UNITS`,
+  TOTAL_UNITS = `TOTAL UNITS`,
+  LAND_SQUARE_FEET = `LAND SQUARE FEET`,
+  GROSS_SQUARE_FEET = `GROSS SQUARE FEET`,
+  YEAR_BUILT = `YEAR BUILT`,
+  BUILDING_CLASS_AT_TIME_OF_SALE = `BUILDING CLASS AT TIME OF SALE`,
+  SALE_PRICE = `SALE PRICE`,
+  SALE_DATE = `SALE DATE`,
+  TAX_CLASS_AT_TIME_OF_SALE= `TAX CLASS AT TIME OF SALE`
+  
+)
+
+```
+According to the structure of the data, we found the class of  LAND_SQUARE_FEET, GROSS_SQUARE_FEET, SALE_PRICE are character. We need to convert them to numeric.
+```{r message=FALSE, warning=FALSE}
+#change the variable LAND_SQUARE_FEET, GROSS_SQUARE_FEET, SALE_PRICE to numeric class
+nyc_sales$LAND_SQUARE_FEET<-as.numeric(nyc_sales$LAND_SQUARE_FEET)
+nyc_sales$GROSS_SQUARE_FEET<-as.numeric(nyc_sales$GROSS_SQUARE_FEET)
+nyc_sales$SALE_PRICE<-as.numeric(nyc_sales$SALE_PRICE)
+
+```
+
+Then we drop all the rows containing the missing value
+```{r}
+#drop all the rows containing missing value
+nyc_sales<-drop_na(nyc_sales)
+```
+
+Now, we checked the distribution of the variable SALE_PRICE:
+```{r}
+# check the distribution of sale price
+nyc_sales%>%ggplot(aes(SALE_PRICE+1))+
+  geom_histogram()+scale_x_continuous(trans='log10')+
+  ggtitle("Distribution of SALE_PRICE")
+```
+We found a lot of houses were sold by unreal prices, this means that the houses where not sold, they were transfer between owners. Here we will only use the houses with prices over $100,000 to build our model, since it is a relistic price that won't mess the  models.
+```{r}
+# filter the houses with price lower than $100000 
+nyc_sales<- nyc_sales%>%filter(SALE_PRICE>100000)
+nyc_sales%>%ggplot(aes(SALE_PRICE+1))+
+  geom_histogram()+scale_x_continuous(trans='log10')+
+  ggtitle("Distribution of SALE_PRICE")
+```
+Similiarly, we checked the distribution of YEAR_BUILT
+```{r}
+
+# check the distribution of year built 
+nyc_sales%>%ggplot(aes(YEAR_BUILT))+
+  geom_histogram()+
+  ggtitle("Distribution of YEAR_BUILT")
+
+```
+We found the YEAR_BUILT of some houses are 0 and then we need to delete these rows.
+```{r}
+# drop the house with the YEAR_BUILT 0.
+nyc_sales<- nyc_sales%>%filter(YEAR_BUILT>0)
+# check the distribution of year built 
+nyc_sales%>%ggplot(aes(YEAR_BUILT))+
+  geom_histogram()+
+  ggtitle("Distribution of YEAR_BUILT")
+```
+Following is the distribution of GROSS_SQUARE_FEET
+```{r}
+#check the distribution of GROSS_SQUARE_FEET
+nyc_sales%>%ggplot(aes(GROSS_SQUARE_FEET+1))+
+  geom_histogram()+scale_x_continuous(trans = 'log10')+
+  ggtitle("Distribution of GROSS_SQUARE_FEET")
+
+```
+We found that lot of houses has 0 GROSS_SQUARE_FEET and we need to delete these houses for building our predictive models.
+```{r}
+#drop the houses with 0 GROSS_SQUARE_FEET
+nyc_sales<- nyc_sales%>%filter(GROSS_SQUARE_FEET>0)
+nyc_sales%>%ggplot(aes(GROSS_SQUARE_FEET+1))+
+  geom_histogram()+scale_x_continuous(trans = 'log10')+
+  ggtitle("Distribution of GROSS_SQUARE_FEET")
+
+```
+Similarly, we plot the distribution of LAND_SQUARE_FEET
+
+```{r}
+# check the distribution of LAND_SQUARE_FEET
+nyc_sales%>%ggplot(aes(LAND_SQUARE_FEET+1))+
+  geom_histogram()+scale_x_continuous(trans = 'log10')+
+  ggtitle("Distribution of LAND_SQUARE_FEET")
+
+```
+we also deleted the rows with 0 LAND_SQURE_FEET
+```{r}
+# drop the houses with 0 LAND_SQUARE_FEET
+nyc_sales<- nyc_sales%>%filter(LAND_SQUARE_FEET>0)
+nyc_sales%>%ggplot(aes(LAND_SQUARE_FEET+1))+
+  geom_histogram()+scale_x_continuous(trans = 'log10')+
+  ggtitle("Distribution of LAND_SQUARE_FEET")
+```
+
+The varaible BOROUGH is a digit code for the borough the property is located in. For the convinience for the further analysis, we convert it to 5 independent numeric variables: Manhattan,Bronx, Brooklyn, Queens, and State_Island.
+
+```{r}
+#plot the histogram of variable BOROUGH
+nyc_sales%>%ggplot(aes(BOROUGH))+
+  geom_histogram()+ 
+  ggtitle("Distribution of BOROUGH")
+```
+
+```{r}
+#convert categorical variable BOROUGH into 5 numeric variables for the convinient of further analysis
+nyc_sales<-nyc_sales%>%mutate(Manhattan = ifelse(BOROUGH==1,1,0))
+nyc_sales<-nyc_sales%>%mutate(Bronx = ifelse(BOROUGH==2,1,0))
+nyc_sales<-nyc_sales%>%mutate(Brooklyn = ifelse(BOROUGH==3,1,0))
+nyc_sales<-nyc_sales%>%mutate(Queens = ifelse(BOROUGH==4,1,0))
+nyc_sales<-nyc_sales%>%mutate(State_Island = ifelse(BOROUGH==5,1,0))
+
+#delete the BOROUGH variable from the dataset
+nyc_sales$BOROUGH<-NULL
+```
+Similarly, we also convert the variable TAX_CLASS_AT_TIME_OF_SALE into 3 seperate numeric variables:Taxclass1,Taxclass2,Taxclass4.
+```{r}
+#plot the histogram of variable TAX_CLASS_AT_TIME_OF_SALE
+nyc_sales%>%ggplot(aes(TAX_CLASS_AT_TIME_OF_SALE))+
+  geom_histogram()+ 
+  ggtitle("Distribution of TAX_CLASS_AT_TIME_OF_SALE")
+```
+
+```{r}
+#convert categorical variable TAX_CLASS_AT_TIME_OF_SALE" into 3 numeric variables
+nyc_sales<-nyc_sales%>%mutate(Taxclass1 = ifelse(TAX_CLASS_AT_TIME_OF_SALE==1,1,0))
+nyc_sales<-nyc_sales%>%mutate(Taxclass2 = ifelse(TAX_CLASS_AT_TIME_OF_SALE==2,1,0))
+nyc_sales<-nyc_sales%>%mutate(Taxclass4 = ifelse(TAX_CLASS_AT_TIME_OF_SALE==4,1,0))
+
+#delete the variable TAX_CLASS_AT_TIME_OF_SALE from the dataset
+nyc_sales$TAX_CLASS_AT_TIME_OF_SALE <-NULL
+```
+
+From above distribution figures, we found the variable SALE_PRICE,GROSS_SQUARE_FEET and LAND_SQUARE_FEET are highly right skewed and then we will use logarithmic transformationd to tranform them into ones that are more approximatedly normal variables.
+```{r}
+# Use logarithmic transformations to transforming highly skewed variables 
+# into ones that is more approximately normal.
+nyc_sales$SALE_PRICE<-log(nyc_sales$SALE_PRICE)
+nyc_sales$GROSS_SQUARE_FEET<-log(nyc_sales$GROSS_SQUARE_FEET)
+nyc_sales$LAND_SQUARE_FEET<-log(nyc_sales$LAND_SQUARE_FEET)
+```
+
+```{r}
+# check the dimension of the data after data cleaning
+dim(nyc_sales)
+```
+
+Now we have a clean dataset which have 27,901 rows and 23 variables. Before we begin to build our predictive models, we need to split the dataset into 2 part: training set and test set. Tranining set is used to build the model and test set is used to evaluate the model with RMSE metric.Considering the size of the dataset, we randomly select 80% of data as training data and 20% as test data
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+
+# split the data into training data and test data
+set.seed(1, sample.kind="Rounding") # if using R 3.5 or earlier, use `set.seed(1)`
+test_index <- createDataPartition(y = nyc_sales$SALE_PRICE, times = 1, p = 0.2, list = FALSE)
+nyc_training <- nyc_sales[-test_index,]
+nyc_test <- nyc_sales[test_index,]
+
+```
+
+## 2.3 Building predictive models
+
+In this project, we used the typical error loss, the residual mean squared error (RMSE),to evaluate the methods. Following is a function that computes the RMSE for vectors of ratings and their corresponding predictors:
+
+```{r RMSE, include=FALSE}
+RMSE <- function(true_ratings, predicted_ratings){
+  sqrt(mean((true_ratings - predicted_ratings)^2))
+}
+```
+
+To evaluate the dependent variables that are most important in predicting SALE_PRICE, we first calculate the correlation between SALE_RPICE and all other numeric variables in the traning dataset.
+```{r}
+#get the index of numeric column
+num_vars <- which(sapply(nyc_training, is.numeric)) 
+#get the name of numeric column 
+num_vars_colnames <- data.table(names(num_vars)) 
+
+#get the table with all numeric variabls
+nyc_training_num <- nyc_training[, num_vars]
+nyc_test_num<-nyc_test[,num_vars]
+
+#do the correlations of all numeric variables in pairwise
+cor_num_vars <- cor(nyc_training_num, use="pairwise.complete.obs")
+
+#sort on decreasing correlations with SalePrice
+cor_sorted <- as.matrix(sort(cor_num_vars[,"SALE_PRICE"], decreasing = TRUE))
+cor_sorted
+
+```
+
+
+### 2.3.1 Model 1: Linear regression model with one variable
+
+According to above correlation result, we found GROSS_SQUARE_FEET has the highest correlation with SALE_PRICE. So we will use GROSS_SQUAR_FEET as depent variable to build our fist linear regression model to predict the SALE_PRICE. 
+
+```{r message=FALSE, warning=FALSE}
+#model 1, linear regession model with one virable
+set.seed(1, sample.kind="Rounding")
+model_1 <- lm(SALE_PRICE ~ GROSS_SQUARE_FEET, data = nyc_training_num)
+summary(model_1)
+
+```
+
+```{r}
+# use the model to predict on test data
+prediction <- predict(model_1, nyc_test, type="response")
+
+model_1_rmse <- RMSE(prediction, nyc_test$SALE_PRICE)
+model_1_rmse
+
+RMSE_table <- data_frame(Method = "Linear regression model with only gross square feet effect",RMSE = model_1_rmse)
+
+```
+The RMSE of this model is 0.605191, which is a good start. We will try to improve it further with other methods.
+
+### 2.3.2 Model 2: Linear regression model with multiple variables
+Next, we will use all the numeric varibles as depent varibles to build the linear regression model.
+```{r message=FALSE, warning=FALSE}
+#model 2, linear regression model with multiple varibles
+set.seed(1, sample.kind="Rounding")
+model_2 <- lm(SALE_PRICE ~RESIDENTIAL_UNITS+COMMERCIAL_UNITS+TOTAL_UNITS+LAND_SQUARE_FEET+GROSS_SQUARE_FEET+YEAR_BUILT+Manhattan+Bronx+Brooklyn+Queens+State_Island+Taxclass1+Taxclass2+Taxclass4, data = nyc_training_num)
+summary(model_2)
+```
+
+```{r message=FALSE, warning=FALSE}
+# use the model to predict on test data
+prediction <- predict(model_2, nyc_test, type="response")
+
+model_2_rmse <- RMSE(prediction, nyc_test$SALE_PRICE)
+model_2_rmse
+RMSE_table <- rbind(RMSE_table,
+                     data_frame(Method = "Linear regression model with multiple effects",
+                                RMSE = model_2_rmse))
+
+```
+We can see the RMSE of this model has been improved to 0.5378123.
+
+### 2.3.3 Model 3: Ridge regression model
+Ridge regression is an extension of linear regression where the loss function is modified to minimize the complexity of the model. This modification is done by adding a penalty parameter that is equivalent to the square of the magnitude of the coefficients. Here we will build a ridge regression model to do the prediction.
+
+```{r message=FALSE, warning=FALSE}
+#model 3, ridge regression model
+x = model.matrix(SALE_PRICE~., nyc_training_num)[,-1] # trim off the first column,leaving only the predictors
+y<-nyc_training_num$SALE_PRICE
+
+x_test = model.matrix(SALE_PRICE~., nyc_test_num)[,-1]
+y_test <-nyc_test_num$SALE_PRICE
+
+#train the model
+lambdas <- 10^seq(2, -3, by = -.1)
+model_3 <- cv.glmnet(x, y, alpha = 0, lambda = lambdas)
+summary(model_3)
+
+
+
+```
+
+```{r}
+optimal_lambda <- model_3$lambda.min
+optimal_lambda
+```
+
+```{r}
+# use the model and optimal lambda  to predict on test data
+prediction<- predict(model_3, s = optimal_lambda, newx = x_test)
+model_3_rmse<-RMSE(prediction,nyc_test$SALE_PRICE)
+model_3_rmse
+RMSE_table <- rbind(RMSE_table,
+                    data_frame(Method = "Ridge regression model",
+                               RMSE = model_3_rmse))
+```
+The RMSE of ridge regression model is 0.53344493, which is better than the above 2 linear regression models.
+
+### 2.3.4 Model 4: Lasso regession model
+Lasso regression, is also a modification of linear regression. In lasso, the loss function is modified to minimize the complexity of the model by limiting the sum of the absolute values of the model coefficients (also called the l1-norm). Here, we will build the lasso regression model to predict the house price.
+```{r message=FALSE, warning=FALSE}
+#model 4, lasso regression
+set.seed(1, sample.kind="Rounding")
+#train the model
+lasso_control <-trainControl(method="cv", number=5)
+lassoGrid <- expand.grid(alpha = 1, lambda = seq(0.001,0.1,by = 0.0005))
+model_4 <- train(SALE_PRICE ~ ., data = nyc_training_num, method='glmnet',
+                     trControl= lasso_control, tuneGrid=lassoGrid) 
+summary(model_4)
+
+```
+
+```{r}
+#use the model to predict on test data
+prediction <- predict(model_4, nyc_test)
+model_4_rmse <- RMSE(prediction, nyc_test$SALE_PRICE)
+model_4_rmse
+RMSE_table <- rbind(RMSE_table,
+                    data_frame(Method = "Lasso regression model",
+                               RMSE = model_4_rmse))
+
+```
+The RMSE of Lasso regression model on test data set is 0.5345257.
+
+### 2.3.5 Model 5: Elastic net regression model
+Elastic net regression combines the properties of ridge and lasso regression. It works by penalizing the model using both the 1l2-norm1 and the 1l1-norm1. The model can be easily built using the caret package, which automatically selects the optimal value of parameters alpha and lambda. Here, we also build a elastic net regression model to predict the house price.
+```{r message=FALSE, warning=FALSE,results="hide"}
+#model 5, Elastic Net Regression
+set.seed(1, sample.kind="Rounding")
+# Set training control
+elastic_control <- trainControl(method = "repeatedcv",
+                           number = 10,
+                           repeats = 5,
+                           search = "random",
+                           verboseIter = TRUE)
+# Train the model
+model_5 <- train(SALE_PRICE ~ ., data = nyc_training_num, method = "glmnet",
+        preProcess = c("center", "scale"), tuneLength = 10,trControl = elastic_control)
+
+```
+
+```{r}
+summary(model_5)
+```
+
+```{r}
+# Best tuning parameter
+model_5$bestTune
+
+```
+
+```{r}
+# use the model to make predictions on test set
+prediction <- predict(model_5, nyc_test)
+model_5_rmse <- RMSE(prediction, nyc_test$SALE_PRICE)
+model_5_rmse
+RMSE_table <- rbind(RMSE_table,
+                    data_frame(Method = "Elastic net regression model",
+                               RMSE = model_5_rmse))
+```
+The RMSE of elastic net regression model is 0.5346134.
+
+### 2.3.6 Model 6: Random forest regression model
+Random Forest is a popular machine learning model that is commonly used for both classification and regression.A Random Forest's nonlinear nature can give it a leg up over linear algorithms, making it a great option.
+```{r message=FALSE, warning=FALSE}
+#model 6,random forest regression model
+set.seed(1, sample.kind="Rounding")
+model_6 <- randomForest(SALE_PRICE ~., data = nyc_training_num)
+summary(model_6)
+
+
+```
+
+```{r}
+#use the model to make prediction on test data
+prediction <- predict(model_6, nyc_test)
+model_6_rmse <- RMSE(prediction, nyc_test$SALE_PRICE)
+model_6_rmse
+RMSE_table <- rbind(RMSE_table,
+                    data_frame(Method = "Random forest regression model",
+                               RMSE = model_6_rmse))
+```
+The RMSE of random forest regression model is 0.4441618.
+
+# 3. Results
+We built 6 regression models here to predict house prices and the RMSE of 6 methods are as following table
+```{r message=FALSE, warning=FALSE}
+#results for all the models
+RMSE_table %>% knitr::kable(caption = "RMSE of predictive models ")
+```
+
+# 4. Conclusion
+In this project, we built 6 regression models to predict the house price on NYC property sales dataset. Overall, all the models are performing well with stable RMSE values. Among the 6 predictive models, fandom forest regression model got the best performance, which RMSE is 0.4441618. All the data and code and report can be downloaded from https://github.com/zhan-us/NYC_Sales.
+
+# References
+1. https://rafalab.github.io/dsbook/ 
+
+2. https://www.kaggle.com/new-york-city/nyc-property-sales
+
+3. https://github.com/zhan-us/NYC_Sales
+
