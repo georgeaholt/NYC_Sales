@@ -58,7 +58,7 @@ Then we will load the NYC Property Sales data. The data includes only one file "
 ```{r message=FALSE, warning=FALSE,results = "hide"}
 # download the csv data from internet and load the data from csv file
 temp<-tempfile()
-download.file("https://github.com/zhan-us/NYC_Sales/raw/main/nyc-rolling-sales.csv",temp,method = "wget")
+download.file("https://github.com/zhan-us/NYC_Sales/raw/main/nyc-rolling-sales.csv",temp)
 nyc_sales_orginal<-read_csv(temp)
 unlink(temp)
 ```
